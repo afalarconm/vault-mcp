@@ -73,13 +73,14 @@ export function normalizePath(path: string): string | null {
 	if (trimmed.includes("\\")) return null;
 	if (trimmed.includes("\0")) return null;
 	// Reject any `..` segment (traversal) — check segment-wise, not substring.
-	if (trimmed.split("/").some((seg) => seg === "..")) return null;
+	if (trimmed.split("/").some((seg) => seg === ".." || seg === "." || seg === "")) return null;
 	return trimmed;
 }
 
 function matchesPrefix(path: string, prefix: string): boolean {
-	const clean = prefix.replace(/\/+$/, "");
-	return path === clean || path.startsWith(`${clean}/`);
+	const clean = prefix.replace(/\/+$/, "").toLowerCase();
+	const p = path.toLowerCase();
+	return p === clean || p.startsWith(`${clean}/`);
 }
 
 function isNote(path: string): boolean {
@@ -111,7 +112,8 @@ export class VaultClient {
 	}
 
 	async readNote(path: string): Promise<{ path: string; content: string }> {
-		const normalized = this.guardReadable(path);
+		// Notes only: the vault also holds scripts and config that agents don't need.
+		const normalized = this.guardMutable(path);
 		const content = await this.storage.readFile(normalized);
 		return { path: normalized, content };
 	}

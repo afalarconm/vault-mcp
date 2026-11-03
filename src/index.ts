@@ -4,14 +4,12 @@ import type { Props } from "./auth/props";
 import { createGuardedApiHandler } from "./guard";
 import { MCP_PATH, createOAuthProvider } from "./oauth-provider";
 import {
-	deleteNoteInput,
 	listNotesInput,
 	readNoteInput,
 	searchNotesInput,
 	writeNoteInput,
 } from "./schemas";
 import {
-	deleteNoteHandler,
 	listNotesHandler,
 	readNoteHandler,
 	searchNotesHandler,
@@ -21,10 +19,14 @@ import { vaultClientFromEnv } from "./vault";
 import { version } from "../package.json";
 
 export class VaultMCP extends McpAgent<Env, Record<string, never>, Props> {
-	server = new McpServer({
-		name: "Vault MCP",
-		version,
-	});
+	server = new McpServer(
+		{ name: "Vault MCP", version },
+		{
+			instructions:
+				"Federico's Obsidian vault. Before reading or writing anything, read AGENTS.md (the vault rules). " +
+				"Start from home.md, then projects/<product>/README.md and its topics/. Create new notes rather than rewriting existing ones.",
+		},
+	);
 
 	async init() {
 		const client = vaultClientFromEnv(this.env);
@@ -48,13 +50,6 @@ export class VaultMCP extends McpAgent<Env, Record<string, never>, Props> {
 			"Create a new note or overwrite an existing one at a repo-relative path. Markdown files only.",
 			writeNoteInput.shape,
 			({ path, content }) => writeNoteHandler(client, path, content),
-		);
-
-		this.server.tool(
-			"delete_note",
-			"Delete an existing note by its vault-relative path. Markdown files only; never touches non-note files.",
-			deleteNoteInput.shape,
-			({ path }) => deleteNoteHandler(client, path),
 		);
 
 		this.server.tool(

@@ -23,7 +23,7 @@ const MIN_COOKIE_KEY_LENGTH = 32;
 // Generic tooling/dotfile dirs that should never be exposed as notes. Committed
 // here rather than in `wrangler.jsonc` vars so the default is visible and
 // code-reviewed; override per deploy with a `VAULT_DENIED_PREFIXES` secret.
-const DEFAULT_DENIED_PREFIXES = ".git/,.obsidian/,.claude/";
+const DEFAULT_DENIED_PREFIXES = ".git/,.obsidian/,.claude/,.kiro/,.cursor/";
 
 // Keys every deploy needs regardless of which upstream login provider is used.
 export const commonEnvSchema = z.object({

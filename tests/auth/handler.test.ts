@@ -62,6 +62,7 @@ function appEnv(): Record<string, unknown> {
 		GITHUB_CLIENT_ID: "cid",
 		GITHUB_CLIENT_SECRET: "secret",
 		COOKIE_ENCRYPTION_KEY: SECRET,
+		VAULT_ALLOWED_GITHUB_LOGINS: "alice",
 	};
 }
 
@@ -84,6 +85,13 @@ beforeEach(() => {
 });
 
 describe("GET /authorize", () => {
+	it("400s when the client redirect host is not on the allowlist", async () => {
+		oauthProvider.parseAuthRequest = vi.fn(async () => ({ ...reqInfo, redirectUri: "https://evil.example/cb" }));
+		const res = await request("https://mcp.example/authorize");
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("redirect not allowed");
+	});
+
 	it("400s when the request carries no client id", async () => {
 		oauthProvider.parseAuthRequest = vi.fn(async () => ({ clientId: undefined }));
 		const res = await request("https://mcp.example/authorize");
@@ -168,7 +176,7 @@ describe("POST /authorize", () => {
 		const { token, setCookie } = generateCSRFProtection();
 		const res = await postForm({ csrf_token: token, state: validState() }, setCookie.split(";")[0]);
 		expect(res.status).toBe(500);
-		expect(await res.text()).toContain("kv down");
+		expect(await res.text()).toBe("Internal server error");
 	});
 
 	it("stringifies a non-Error throw in the 500 message", async () => {
@@ -177,7 +185,7 @@ describe("POST /authorize", () => {
 		const { token, setCookie } = generateCSRFProtection();
 		const res = await postForm({ csrf_token: token, state: validState() }, setCookie.split(";")[0]);
 		expect(res.status).toBe(500);
-		expect(await res.text()).toContain("plain string failure");
+		expect(await res.text()).toBe("Internal server error");
 	});
 
 	it("returns the OAuthError response when CSRF validation fails", async () => {
@@ -198,6 +206,18 @@ describe("GET /callback", () => {
 		request(`https://mcp.example/callback?${params}`, {
 			headers: consented ? { Cookie: `__Host-CONSENTED_STATE=${consented}` } : {},
 		});
+
+	it("403s and issues no token for a login off the allowlist", async () => {
+		vi.stubGlobal("fetch", vi.fn(async () => Response.json({ access_token: "gho_token" })));
+		octo.getAuthenticated.mockResolvedValue({
+			data: { login: "mallory", name: "Mallory", email: "m@example.com" },
+		});
+		const { stateToken, consented } = await seedState();
+		const res = await callback(`state=${stateToken}&code=the-code`, consented);
+		vi.unstubAllGlobals();
+		expect(res.status).toBe(403);
+		expect(oauthProvider.completeAuthorization).not.toHaveBeenCalled();
+	});
 
 	it("completes authorization and redirects on a valid callback", async () => {
 		vi.stubGlobal(
@@ -288,6 +308,7 @@ describe("GET /callback with the Google provider", () => {
 		GOOGLE_CLIENT_ID: "gcid",
 		GOOGLE_CLIENT_SECRET: "gsecret",
 		COOKIE_ENCRYPTION_KEY: SECRET,
+		VAULT_ALLOWED_GOOGLE_EMAILS: "alice@example.com",
 	});
 
 	const seedState = async () => {
@@ -373,6 +394,7 @@ describe("the generic OIDC provider", () => {
 		OIDC_CLIENT_SECRET: "osecret",
 		OIDC_DISPLAY_NAME: "Acme SSO",
 		COOKIE_ENCRYPTION_KEY: SECRET,
+		VAULT_ALLOWED_OIDC_EMAILS: "alice@example.com",
 	});
 
 	const stubIdp = (userinfo: Record<string, unknown>) => {

@@ -60,7 +60,7 @@ beforeEach(() => {
 });
 
 describe("VaultMCP", () => {
-	it("builds the vault client from the DO env and registers the five note tools", async () => {
+	it("builds the vault client from the DO env and registers the four note tools", async () => {
 		const { agent, tools } = await registeredTools();
 		expect(vaultClientFromEnv).toHaveBeenCalledWith(env);
 		expect(agent.server).toBeInstanceOf(McpServer);
@@ -68,7 +68,6 @@ describe("VaultMCP", () => {
 			"list_notes",
 			"read_note",
 			"write_note",
-			"delete_note",
 			"search_notes",
 		]);
 	});
@@ -85,8 +84,6 @@ describe("VaultMCP", () => {
 		await tools.get("write_note")?.({ path: "a.md", content: "# x" });
 		expect(vaultClient.writeNote).toHaveBeenCalledWith("a.md", "# x");
 
-		await tools.get("delete_note")?.({ path: "a.md" });
-		expect(vaultClient.deleteNote).toHaveBeenCalledWith("a.md");
 
 		await tools.get("search_notes")?.({ query: "q", limit: 3 });
 		expect(vaultClient.searchNotes).toHaveBeenCalledWith("q", 3);

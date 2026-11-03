@@ -15,6 +15,24 @@ import {
 	validateOAuthState,
 } from "./session";
 import { fetchUpstreamAuthToken, getUpstreamAuthorizeUrl, redirectResponse } from "./upstream";
+import { isLoginAllowed } from "../tools";
+
+// Single-user deploy: only these MCP clients may receive tokens, so a phishing client
+// registered through open DCR can't get a vault token even if the owner approves it.
+const DEFAULT_REDIRECT_HOSTS = "claude.ai,claude.com,chatgpt.com,localhost,127.0.0.1";
+
+export function isRedirectAllowed(redirectUri: string | undefined, env: Env): boolean {
+	if (!redirectUri) return false;
+	let host: string;
+	try {
+		host = new URL(redirectUri).hostname.toLowerCase();
+	} catch {
+		return false;
+	}
+	const raw = (env as Env & { VAULT_ALLOWED_REDIRECT_HOSTS?: string }).VAULT_ALLOWED_REDIRECT_HOSTS ?? DEFAULT_REDIRECT_HOSTS;
+	const allowed = raw.split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
+	return allowed.some((a) => host === a || host.endsWith(`.${a}`));
+}
 
 type AuthEnv = Env & { OAUTH_PROVIDER: OAuthHelpers };
 
@@ -65,6 +83,9 @@ export function createAuthHandler(provider: UpstreamProvider): Hono<{ Bindings: 
 		if (!clientId) {
 			return c.text("Invalid request", 400);
 		}
+		if (!isRedirectAllowed(oauthReqInfo.redirectUri, c.env)) {
+			return c.text(`Client redirect not allowed: ${oauthReqInfo.redirectUri}. Add its host to VAULT_ALLOWED_REDIRECT_HOSTS.`, 400);
+		}
 
 		// Already approved: skip the dialog, but still bind state to the session.
 		if (await isClientApproved(c.req.raw, clientId, c.env.COOKIE_ENCRYPTION_KEY)) {
@@ -83,7 +104,7 @@ export function createAuthHandler(provider: UpstreamProvider): Hono<{ Bindings: 
 			client: await c.env.OAUTH_PROVIDER.lookupClient(clientId),
 			csrfToken,
 			server: {
-				description: `Remote MCP for a private Obsidian vault (read, create, update, and delete notes). Sign in with ${provider.displayName(c.env)} to connect.`,
+				description: `Remote MCP for a private Obsidian vault (read, create and update notes; no deletes). Sign in with ${provider.displayName(c.env)} to connect.`,
 				logo: provider.logo,
 				name: "Vault MCP",
 			},
@@ -112,6 +133,9 @@ export function createAuthHandler(provider: UpstreamProvider): Hono<{ Bindings: 
 			if (!state.oauthReqInfo?.clientId) {
 				return c.text("Invalid request", 400);
 			}
+			if (!isRedirectAllowed(state.oauthReqInfo.redirectUri, c.env)) {
+				return c.text("Client redirect not allowed", 400);
+			}
 
 			const [endpoints, unavailable] = await resolveEndpoints(c.env);
 			if (unavailable) return unavailable;
@@ -135,8 +159,7 @@ export function createAuthHandler(provider: UpstreamProvider): Hono<{ Bindings: 
 			if (error instanceof OAuthError) {
 				return error.toResponse();
 			}
-			const message = error instanceof Error ? error.message : String(error);
-			return c.text(`Internal server error: ${message}`, 500);
+			return c.text("Internal server error", 500);
 		}
 	});
 
@@ -195,6 +218,10 @@ export function createAuthHandler(provider: UpstreamProvider): Hono<{ Bindings: 
 			throw error;
 		}
 		const { login, name, email } = identity;
+		// Refuse to issue tokens to anyone off the allowlist (the API guard also blocks them).
+		if (!isLoginAllowed(login, provider.allowedLogins(c.env))) {
+			return c.text("Forbidden", 403);
+		}
 
 		const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
 			metadata: {
